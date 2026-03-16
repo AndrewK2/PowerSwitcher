@@ -73,15 +73,19 @@ namespace PowerSwitcher.TrayApp
 
             var settingsOffACItem = contextMenuSettings.MenuItems.Add(AppStrings.SchemaToSwitchOffAc);
             settingsOffACItem.Name = "settingsOffAC";
+            
+            #region Inactivity configuration
+
+            var settingsInactivityItem = contextMenuSettings.MenuItems.Add(AppStrings.SchemaToSwitchOnInactivity);
+            settingsInactivityItem.Name = "settingsInactivity";
+
+            #endregion
 
             var automaticSwitchItem = contextMenuSettings.MenuItems.Add(AppStrings.AutomaticOnOffACSwitch);
             automaticSwitchItem.Checked = configuration.Data.AutomaticOnACSwitch;
             automaticSwitchItem.Click += AutomaticSwitchItem_Click;
 
             #region Inactivity configuration
-
-            var settingsInactivityItem = contextMenuSettings.MenuItems.Add(AppStrings.SchemaToSwitchOnInactivity);
-            settingsInactivityItem.Name = "settingsInactivity";
 
             var settingsInactivityIntervalItem = contextMenuSettings.MenuItems.Add(AppStrings.AutomaticallyChangeSchemaWhenInactive);
             settingsInactivityIntervalItem.Name = "settingsInactivityInterval";
