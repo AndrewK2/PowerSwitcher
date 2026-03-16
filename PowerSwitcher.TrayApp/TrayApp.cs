@@ -23,7 +23,7 @@ namespace PowerSwitcher.TrayApp
         ConfigurationInstance<PowerSwitcherSettings> configuration;
         InactivityWatcherService inactivityWatcher;
         System.Drawing.Icon defaultIcon;
-        System.Drawing.Icon invertedIcon;
+        System.Drawing.Icon rotatedIcon;
 
         #endregion
         
@@ -42,12 +42,12 @@ namespace PowerSwitcher.TrayApp
             _trayIcon.MouseClick += TrayIcon_MouseClick;
 
             defaultIcon = new System.Drawing.Icon(Application.GetResourceStream(new Uri("pack://application:,,,/PowerSwitcher.TrayApp;component/Tray.ico")).Stream, WF.SystemInformation.SmallIconSize);
-            invertedIcon = CreateInvertedIcon(defaultIcon);
+            rotatedIcon = CreateRotatedIcon(defaultIcon);
             _trayIcon.Icon = defaultIcon;
             _trayIcon.Text = string.Concat(AppStrings.AppName);
             _trayIcon.Visible = true;
 
-            inactivityWatcher.InactivityStateChanged += isInactive => _trayIcon.Icon = isInactive ? invertedIcon : defaultIcon;
+            inactivityWatcher.InactivityStateChanged += isInactive => _trayIcon.Icon = isInactive ? rotatedIcon : defaultIcon;
 
             this.ShowFlyout += (((App)Application.Current).MainWindow as MainWindow).ToggleWindowVisibility;
 
@@ -371,41 +371,14 @@ namespace PowerSwitcher.TrayApp
 
         #region IconHelpers
 
-        private static System.Drawing.Icon CreateInvertedIcon(System.Drawing.Icon original)
+        private static System.Drawing.Icon CreateRotatedIcon(System.Drawing.Icon original)
         {
             using (var bmp = new System.Drawing.Bitmap(original.Width, original.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
             {
                 using (var g = System.Drawing.Graphics.FromImage(bmp))
                     g.DrawIcon(original, 0, 0);
 
-                var data = bmp.LockBits(
-                    new System.Drawing.Rectangle(0, 0, bmp.Width, bmp.Height),
-                    System.Drawing.Imaging.ImageLockMode.ReadWrite,
-                    System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-
-                int bytes = Math.Abs(data.Stride) * bmp.Height;
-                var pixels = new byte[bytes];
-                System.Runtime.InteropServices.Marshal.Copy(data.Scan0, pixels, 0, bytes);
-
-                for (int i = 0; i < bytes; i += 4)
-                {
-                    if (pixels[i + 3] == 0) // transparent → opaque white background
-                    {
-                        pixels[i]     = 255; // B
-                        pixels[i + 1] = 255; // G
-                        pixels[i + 2] = 255; // R
-                        pixels[i + 3] = 255; // A
-                    }
-                    else // visible → invert RGB
-                    {
-                        pixels[i]     = (byte)(255 - pixels[i]);     // B
-                        pixels[i + 1] = (byte)(255 - pixels[i + 1]); // G
-                        pixels[i + 2] = (byte)(255 - pixels[i + 2]); // R
-                    }
-                }
-
-                System.Runtime.InteropServices.Marshal.Copy(pixels, 0, data.Scan0, bytes);
-                bmp.UnlockBits(data);
+                bmp.RotateFlip(System.Drawing.RotateFlipType.Rotate90FlipNone);
 
                 IntPtr hicon = bmp.GetHicon();
                 var icon = (System.Drawing.Icon)System.Drawing.Icon.FromHandle(hicon).Clone();
