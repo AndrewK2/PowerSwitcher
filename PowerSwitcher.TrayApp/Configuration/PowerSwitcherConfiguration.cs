@@ -5,6 +5,8 @@ using System.Windows.Input;
 
 namespace PowerSwitcher.TrayApp.Configuration
 {
+    public enum TrayIconColorTint { Green, Yellow, Red }
+
     [Serializable]
     public class PowerSwitcherSettings : ObservableObject
     {
@@ -24,6 +26,11 @@ namespace PowerSwitcher.TrayApp.Configuration
 
         bool showOnlyDefaultSchemas = false;
         public bool ShowOnlyDefaultSchemas { get { return showOnlyDefaultSchemas; } set { showOnlyDefaultSchemas = value; RaisePropertyChangedEvent(nameof(ShowOnlyDefaultSchemas)); } }
+
+        public bool InactivitySwitchEnabled { get; set; } = false;
+        public Guid InactivityPlanGuid { get; set; } = Guid.Empty;
+        public int InactivityTimeoutSeconds { get; set; } = TrayApp.InactivityTimeout180;
+        public TrayIconColorTint InactivityIconColorTint { get; set; } = TrayIconColorTint.Green;
 
     }
 }

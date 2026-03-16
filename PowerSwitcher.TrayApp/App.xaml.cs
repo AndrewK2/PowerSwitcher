@@ -4,6 +4,7 @@ using PowerSwitcher.TrayApp.Services;
 using System;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Windows;
@@ -21,6 +22,7 @@ namespace PowerSwitcher.TrayApp
         public IPowerManager PowerManager { get; private set; }
         public TrayApp TrayApp { get; private set; }
         public ConfigurationInstance<PowerSwitcherSettings> Configuration { get; private set; }
+        public InactivityWatcherService InactivityWatcher { get; private set; }
 
         private Mutex _mMutex;
         private void Application_Startup(object sender, StartupEventArgs e)
@@ -40,7 +42,26 @@ namespace PowerSwitcher.TrayApp
 
             PowerManager = new PowerManager();
             MainWindow = new MainWindow();
-            TrayApp = new TrayApp(PowerManager, Configuration); //Has to be last because it hooks to MainWindow
+
+            InactivityWatcher = new InactivityWatcherService(PowerManager);
+
+            if (Configuration.Data.InactivitySwitchEnabled)
+            {
+                var guidValid = PowerManager.Schemas.Any(s => s.Guid == Configuration.Data.InactivityPlanGuid);
+                if (guidValid)
+                {
+                    InactivityWatcher.Configure(true, Configuration.Data.InactivityPlanGuid, TimeSpan.FromSeconds(Configuration.Data.InactivityTimeoutSeconds));
+                }
+                else
+                {
+                    Configuration.Data.InactivitySwitchEnabled = false;
+                    Configuration.Data.InactivityPlanGuid = Guid.Empty;
+                    Configuration.Data.InactivityTimeoutSeconds = 0;
+                    Configuration.Save();
+                }
+            }
+
+            TrayApp = new TrayApp(PowerManager, Configuration, InactivityWatcher); //Has to be last because it hooks to MainWindow
 
             Configuration.Data.PropertyChanged += Configuration_PropertyChanged;
             if (Configuration.Data.ShowOnShortcutSwitch) { registerHotkeyFromConfiguration(); }
@@ -110,6 +131,7 @@ namespace PowerSwitcher.TrayApp
         private void App_OnExit(object sender, ExitEventArgs e)
         {
             DisposeMutex();
+            InactivityWatcher?.Dispose();
             PowerManager?.Dispose();
             HotKeyManager?.Dispose();
         }
