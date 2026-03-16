@@ -27,7 +27,7 @@ namespace PowerSwitcher.TrayApp.Configuration
 
         public bool InactivitySwitchEnabled { get; set; } = false;
         public Guid InactivityPlanGuid { get; set; } = Guid.Empty;
-        public int InactivityTimeoutSeconds { get; set; } = 0;
+        public int InactivityTimeoutSeconds { get; set; } = TrayApp.InactivityTimeout180;
 
     }
 }

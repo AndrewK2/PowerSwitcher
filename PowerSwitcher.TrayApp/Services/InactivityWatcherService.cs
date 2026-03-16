@@ -2,7 +2,9 @@ using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Timers;
-using System.Windows;
+using System.Windows.Forms;
+using Application = System.Windows.Application;
+using Timer = System.Timers.Timer;
 
 namespace PowerSwitcher.TrayApp.Services;
 
@@ -24,7 +26,7 @@ public class InactivityWatcherService(IPowerManager pwrManager) : IDisposable {
 
     private bool isEnabled;
     private Guid inactivityPlanGuid = Guid.Empty;
-    private int timeoutSeconds;
+    private TimeSpan inactivityTimeout;
 
     public void Configure(bool enabled, Guid planGuid, TimeSpan timeout) {
         StopTimer();
@@ -37,9 +39,9 @@ public class InactivityWatcherService(IPowerManager pwrManager) : IDisposable {
 
         isEnabled = enabled;
         inactivityPlanGuid = planGuid;
-        timeoutSeconds = (int)timeout.TotalSeconds;
+        inactivityTimeout = timeout;
 
-        if(enabled && planGuid != Guid.Empty && timeoutSeconds > 0) {
+        if(enabled && planGuid != Guid.Empty && inactivityTimeout > TimeSpan.Zero) {
             StartTimer();
         }
     }
@@ -51,7 +53,7 @@ public class InactivityWatcherService(IPowerManager pwrManager) : IDisposable {
     }
 
     private void StartTimer() {
-        timer = new Timer(15000); // Poll every 15 seconds
+        timer = new Timer(TimeSpan.FromSeconds(8).TotalMilliseconds);
         timer.Elapsed += RunCheckForInactivity;
         timer.AutoReset = true;
         timer.Start();
@@ -70,15 +72,20 @@ public class InactivityWatcherService(IPowerManager pwrManager) : IDisposable {
     }
 
     private void CheckInactivity() {
-        if(!isEnabled || inactivityPlanGuid == Guid.Empty || timeoutSeconds <= 0) return;
+        if(!isEnabled || inactivityPlanGuid == Guid.Empty || inactivityTimeout <= TimeSpan.Zero) {
+            Debug.WriteLine("Check skipped");
+            return;
+        }
 
-        var idleMs = GetIdleTimeMs();
-        var timeoutMs = (uint)(timeoutSeconds * 1000);
+        var idleMs = GetIdleTime();
+
+        Debug.WriteLine("Idle for: {0}", idleMs);
 
         if(!inactivitySwitchFired) {
             // FR-08: Switch to inactivity schema when idle long enough
-            if(idleMs >= timeoutMs) {
+            if(idleMs >= inactivityTimeout) {
                 var currentGuid = pwrManager.CurrentSchema?.Guid ?? Guid.Empty;
+                Debug.WriteLine("Inactivity detected, switching to schema \"{0}\" from \"{1}\"", inactivityPlanGuid, currentGuid);
 
                 // FR-10: Don't switch if inactivity schema is already active
                 if(currentGuid != Guid.Empty && currentGuid != inactivityPlanGuid) {
@@ -86,11 +93,15 @@ public class InactivityWatcherService(IPowerManager pwrManager) : IDisposable {
                     pwrManager.SetPowerSchema(inactivityPlanGuid);
                     inactivitySwitchFired = true;
                     InactivityStateChanged?.Invoke(true);
+                } else {
+                    Debug.WriteLine("Inactivity schema is already active, skipped");
                 }
             }
         } else {
             // FR-09: Restore previous schema when activity is detected
-            if(idleMs < timeoutMs) {
+            if(idleMs < inactivityTimeout) {
+                Debug.WriteLine("Inactivity cancelled, restoring the original schema: " + schemaToRestore);
+
                 if(schemaToRestore != Guid.Empty) {
                     pwrManager.SetPowerSchema(schemaToRestore);
                 }
@@ -102,11 +113,12 @@ public class InactivityWatcherService(IPowerManager pwrManager) : IDisposable {
         }
     }
 
-    private static uint GetIdleTimeMs() {
+    private static TimeSpan GetIdleTime() {
         var info = new LastInputInfo();
         info.cbSize = (uint)Marshal.SizeOf(info);
         GetLastInputInfo(ref info);
-        return unchecked((uint)Environment.TickCount - info.dwTime);
+
+        return TimeSpan.FromMilliseconds(unchecked((uint)Environment.TickCount - info.dwTime));
     }
 
     public void Dispose() => StopTimer();

@@ -25,12 +25,9 @@ namespace PowerSwitcher.TrayApp
         System.Drawing.Icon defaultIcon;
         System.Drawing.Icon invertedIcon;
 
-        private const string InactivityDelay15ItemName = "inactivityAfter15s";
-        private const string InactivityDelay60ItemName = "inactivityAfter60";
-        private const string InactivityDelay180ItemName = "inactivityAfter180";
-        private const string InactivityDelay900ItemName = "inactivityAfter900";
-
         #endregion
+        
+        internal const int InactivityTimeout180 = 180;
 
         #region Contructor
         public TrayApp(IPowerManager powerManager, ConfigurationInstance<PowerSwitcherSettings> config, InactivityWatcherService inactivityWatcherService)
@@ -77,32 +74,40 @@ namespace PowerSwitcher.TrayApp
             var settingsOffACItem = contextMenuSettings.MenuItems.Add(AppStrings.SchemaToSwitchOffAc);
             settingsOffACItem.Name = "settingsOffAC";
 
+            var automaticSwitchItem = contextMenuSettings.MenuItems.Add(AppStrings.AutomaticOnOffACSwitch);
+            automaticSwitchItem.Checked = configuration.Data.AutomaticOnACSwitch;
+            automaticSwitchItem.Click += AutomaticSwitchItem_Click;
+
+            #region Inactivity configuration
+
             var settingsInactivityItem = contextMenuSettings.MenuItems.Add(AppStrings.SchemaToSwitchOnInactivity);
             settingsInactivityItem.Name = "settingsInactivity";
 
             var settingsInactivityIntervalItem = contextMenuSettings.MenuItems.Add(AppStrings.AutomaticallyChangeSchemaWhenInactive);
             settingsInactivityIntervalItem.Name = "settingsInactivityInterval";
 
+            var disabledItem = new WF.MenuItem("Disabled");
+            disabledItem.Name = "inactivityIntervalDisabled";
+            disabledItem.Click += InactivityDisabled_Click;
+            settingsInactivityIntervalItem.MenuItems.Add(disabledItem);
 
-            var intervals = new[] {
-#if DEBUG
-                (seconds: 15,  label: "After 15 seconds", name: InactivityDelay15ItemName),
-#endif
-                (seconds: 60,  label: "After 1 minute",   name: InactivityDelay60ItemName),
-                (seconds: 60 * 3, label: "After 3 minutes", name: InactivityDelay180ItemName),
-                (seconds: 60 * 15, label: "After 15 minutes", name: InactivityDelay900ItemName)
+            var intervalOptions = new[] {
+                (seconds: 15,  label: "After 15 seconds"),
+                (seconds: 60,  label: "After 1 minute"),
+                (seconds: InactivityTimeout180, label: "After 3 minutes"),
+                (seconds: 900, label: "After 15 minutes"),
             };
-            foreach (var (seconds, label, name) in intervals)
+
+            foreach (var (seconds, label) in intervalOptions)
             {
                 var intervalItem = new WF.MenuItem(label);
-                intervalItem.Name = name;
-                intervalItem.Click += (s, ea) => setInactivityTimeout(seconds);
+                intervalItem.Name = $"inactivityAfter{seconds}";
+                var capturedSeconds = seconds;
+                intervalItem.Click += (s, ea) => setInactivityTimeout(capturedSeconds);
                 settingsInactivityIntervalItem.MenuItems.Add(intervalItem);
             }
 
-            var automaticSwitchItem = contextMenuSettings.MenuItems.Add(AppStrings.AutomaticOnOffACSwitch);
-            automaticSwitchItem.Checked = configuration.Data.AutomaticOnACSwitch;
-            automaticSwitchItem.Click += AutomaticSwitchItem_Click;
+            #endregion
 
             var automaticHideItem = contextMenuSettings.MenuItems.Add(AppStrings.HideFlyoutAfterSchemaChangeSwitch);
             automaticHideItem.Checked = configuration.Data.AutomaticFlyoutHideAfterClick;
@@ -238,7 +243,7 @@ namespace PowerSwitcher.TrayApp
                     configuration.Data.InactivityPlanGuid = Guid.Empty;
                     configuration.Data.InactivityTimeoutSeconds = 0;
                     configuration.Save();
-                    inactivityWatcher.Configure(false, Guid.Empty, 0);
+                    inactivityWatcher.Configure(false, Guid.Empty, TimeSpan.Zero);
                 }
             }
 
@@ -247,16 +252,13 @@ namespace PowerSwitcher.TrayApp
                 updateTrayMenuWithPowerSchema(powerSchema);
             }
 
-            // Update checkmarks on interval items
             var intervalMenu = _trayIcon.ContextMenu.MenuItems["settings"].MenuItems["settingsInactivityInterval"];
-            foreach (WF.MenuItem item in intervalMenu.MenuItems)
-            {
-                var secs = item.Name == InactivityDelay15ItemName ? 15
-                         : item.Name == InactivityDelay60ItemName  ? 60
-                         : item.Name == InactivityDelay180ItemName ? 180
-                         : item.Name == InactivityDelay900ItemName ? 900
-                         : -1;
-                item.Checked = secs >= 0 && configuration.Data.InactivitySwitchEnabled && configuration.Data.InactivityTimeoutSeconds == secs;
+            var intervalActive = configuration.Data.InactivitySwitchEnabled && configuration.Data.InactivityTimeoutSeconds > 0;
+            intervalMenu.Text = AppStrings.AutomaticallyChangeSchemaWhenInactive;
+            foreach (WF.MenuItem item in intervalMenu.MenuItems) {
+                item.Checked = item.Name == "inactivityIntervalDisabled" 
+                    ? !intervalActive 
+                    : intervalActive && configuration.Data.InactivityTimeoutSeconds == int.Parse(item.Name.Substring("inactivityAfter".Length));
             }
         }
 
@@ -311,7 +313,6 @@ namespace PowerSwitcher.TrayApp
             _trayIcon.ContextMenu.MenuItems["settings"].MenuItems["settingsOffAC"].MenuItems.Clear();
             _trayIcon.ContextMenu.MenuItems["settings"].MenuItems["settingsOnAC"].MenuItems.Clear();
             _trayIcon.ContextMenu.MenuItems["settings"].MenuItems["settingsInactivity"].MenuItems.Clear();
-            // settingsInactivityInterval items are static — do not clear
         }
 
         private WF.MenuItem getNewPowerSchemaItem(IPowerSchema powerSchema, EventHandler clickedHandler, bool isChecked)
@@ -347,25 +348,24 @@ namespace PowerSwitcher.TrayApp
         private void setInactivityPlan(IPowerSchema schema)
         {
             configuration.Data.InactivityPlanGuid = schema.Guid;
-            configuration.Data.InactivitySwitchEnabled = configuration.Data.InactivityTimeoutSeconds > 0;
             configuration.Save();
-            inactivityWatcher.Configure(configuration.Data.InactivitySwitchEnabled, schema.Guid, configuration.Data.InactivityTimeoutSeconds);
+            inactivityWatcher.Configure(configuration.Data.InactivitySwitchEnabled, schema.Guid, TimeSpan.FromSeconds(configuration.Data.InactivityTimeoutSeconds));
+        }
+
+        private void InactivityDisabled_Click(object sender, EventArgs e)
+        {
+            configuration.Data.InactivitySwitchEnabled = false;
+            configuration.Data.InactivityTimeoutSeconds = 0;
+            configuration.Save();
+            inactivityWatcher.Configure(false, configuration.Data.InactivityPlanGuid, TimeSpan.Zero);
         }
 
         private void setInactivityTimeout(int seconds)
         {
-            if (configuration.Data.InactivityTimeoutSeconds == seconds && configuration.Data.InactivitySwitchEnabled)
-            {
-                configuration.Data.InactivitySwitchEnabled = false;
-                configuration.Data.InactivityTimeoutSeconds = 0;
-            }
-            else
-            {
-                configuration.Data.InactivityTimeoutSeconds = seconds;
-                configuration.Data.InactivitySwitchEnabled = configuration.Data.InactivityPlanGuid != Guid.Empty;
-            }
+            configuration.Data.InactivityTimeoutSeconds = seconds;
+            configuration.Data.InactivitySwitchEnabled = configuration.Data.InactivityPlanGuid != Guid.Empty;
             configuration.Save();
-            inactivityWatcher.Configure(configuration.Data.InactivitySwitchEnabled, configuration.Data.InactivityPlanGuid, configuration.Data.InactivityTimeoutSeconds);
+            inactivityWatcher.Configure(configuration.Data.InactivitySwitchEnabled, configuration.Data.InactivityPlanGuid, TimeSpan.FromSeconds(seconds));
         }
         #endregion
 
