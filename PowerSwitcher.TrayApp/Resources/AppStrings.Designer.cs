@@ -19,7 +19,7 @@ namespace PowerSwitcher.TrayApp.Resources {
     // class via a tool like ResGen or Visual Studio.
     // To add or remove a member, edit your .ResX file then rerun ResGen
     // with the /str option, or rebuild your VS project.
-    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "4.0.0.0")]
+    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "17.0.0.0")]
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
     internal class AppStrings {
@@ -88,6 +88,15 @@ namespace PowerSwitcher.TrayApp.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Automatically change schema when inactive.
+        /// </summary>
+        internal static string AutomaticallyChangeSchemaWhenInactive {
+            get {
+                return ResourceManager.GetString("AutomaticallyChangeSchemaWhenInactive", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to Automaticly change schema when on AC.
         /// </summary>
         internal static string AutomaticOnOffACSwitch {
@@ -138,6 +147,15 @@ namespace PowerSwitcher.TrayApp.Resources {
         internal static string SchemaToSwitchOffAc {
             get {
                 return ResourceManager.GetString("SchemaToSwitchOffAc", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Schema to switch to on inactivity.
+        /// </summary>
+        internal static string SchemaToSwitchOnInactivity {
+            get {
+                return ResourceManager.GetString("SchemaToSwitchOnInactivity", resourceCulture);
             }
         }
         

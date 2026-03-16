@@ -144,6 +144,12 @@
   <data name="SchemaToSwitchOffAc" xml:space="preserve">
     <value>Schema to switch to off AC</value>
   </data>
+  <data name="AutomaticallyChangeSchemaWhenInactive" xml:space="preserve">
+    <value>Automatically change schema when inactive</value>
+  </data>
+  <data name="SchemaToSwitchOnInactivity" xml:space="preserve">
+    <value>Schema to switch to on inactivity</value>
+  </data>
   <data name="SchemaToSwitchOnAc" xml:space="preserve">
     <value>Schema to switch to on AC</value>
   </data>
