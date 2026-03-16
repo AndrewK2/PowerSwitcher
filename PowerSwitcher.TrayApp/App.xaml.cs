@@ -50,7 +50,7 @@ namespace PowerSwitcher.TrayApp
                 var guidValid = PowerManager.Schemas.Any(s => s.Guid == Configuration.Data.InactivityPlanGuid);
                 if (guidValid)
                 {
-                    InactivityWatcher.Configure(true, Configuration.Data.InactivityPlanGuid, Configuration.Data.InactivityTimeoutSeconds);
+                    InactivityWatcher.Configure(true, Configuration.Data.InactivityPlanGuid, TimeSpan.FromSeconds(Configuration.Data.InactivityTimeoutSeconds));
                 }
                 else
                 {
