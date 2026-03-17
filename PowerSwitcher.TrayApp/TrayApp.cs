@@ -23,7 +23,7 @@ namespace PowerSwitcher.TrayApp
         ConfigurationInstance<PowerSwitcherSettings> configuration;
         InactivityWatcherService inactivityWatcher;
         System.Drawing.Icon defaultIcon;
-        System.Drawing.Icon rotatedIcon;
+        System.Drawing.Icon inactiveIcon;
 
         #endregion
         
@@ -42,12 +42,12 @@ namespace PowerSwitcher.TrayApp
             _trayIcon.MouseClick += TrayIcon_MouseClick;
 
             defaultIcon = new System.Drawing.Icon(Application.GetResourceStream(new Uri("pack://application:,,,/PowerSwitcher.TrayApp;component/Tray.ico")).Stream, WF.SystemInformation.SmallIconSize);
-            rotatedIcon = CreateRotatedIcon(defaultIcon);
+            inactiveIcon = CreateInactivityIcon(defaultIcon, configuration.Data.InactivityIconColorTint);
             _trayIcon.Icon = defaultIcon;
             _trayIcon.Text = string.Concat(AppStrings.AppName);
             _trayIcon.Visible = true;
 
-            inactivityWatcher.InactivityStateChanged += isInactive => _trayIcon.Icon = isInactive ? rotatedIcon : defaultIcon;
+            inactivityWatcher.InactivityStateChanged += isInactive => _trayIcon.Icon = isInactive ? inactiveIcon : defaultIcon;
 
             this.ShowFlyout += (((App)Application.Current).MainWindow as MainWindow).ToggleWindowVisibility;
 
@@ -375,19 +375,45 @@ namespace PowerSwitcher.TrayApp
 
         #region IconHelpers
 
-        private static System.Drawing.Icon CreateRotatedIcon(System.Drawing.Icon original)
-        {
-            using (var bmp = new System.Drawing.Bitmap(original.Width, original.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
-            {
-                using (var g = System.Drawing.Graphics.FromImage(bmp))
-                    g.DrawIcon(original, 0, 0);
+        private static System.Drawing.Icon CreateInactivityIcon(System.Drawing.Icon original, TrayIconColorTint colorTint) {
+            using var bmp = new System.Drawing.Bitmap(original.Width, original.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using (var g = System.Drawing.Graphics.FromImage(bmp)) {
+                g.DrawIcon(original, 0, 0);
+            }
 
-                bmp.RotateFlip(System.Drawing.RotateFlipType.Rotate90FlipNone);
+            TintBitmap(bmp, colorTint);
 
-                IntPtr hicon = bmp.GetHicon();
-                var icon = (System.Drawing.Icon)System.Drawing.Icon.FromHandle(hicon).Clone();
-                DestroyIcon(hicon);
-                return icon;
+            var hicon = bmp.GetHicon();
+            var icon = (System.Drawing.Icon)System.Drawing.Icon.FromHandle(hicon).Clone();
+            DestroyIcon(hicon);
+            return icon;
+        }
+
+        private static void TintBitmap(System.Drawing.Bitmap bmp, TrayIconColorTint colorTint) {
+            var tint = colorTint switch {
+                TrayIconColorTint.Yellow => System.Drawing.Color.FromArgb(255, 255, 102),
+                TrayIconColorTint.Red => System.Drawing.Color.FromArgb(255, 102, 102),
+                _ => System.Drawing.Color.FromArgb(144, 238, 144) // Green
+            };
+
+            var rect = new System.Drawing.Rectangle(0, 0, bmp.Width, bmp.Height);
+            var data = bmp.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadWrite,
+                System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            try {
+                var bytes = Math.Abs(data.Stride) * bmp.Height;
+                var pixels = new byte[bytes];
+                System.Runtime.InteropServices.Marshal.Copy(data.Scan0, pixels, 0, bytes);
+
+                for(var i = 0; i < bytes; i += 4) {
+                    if(pixels[i + 3] == 0) continue; // skip transparent
+                    pixels[i] = (byte)(pixels[i] * tint.B / 255); // B
+                    pixels[i + 1] = (byte)(pixels[i + 1] * tint.G / 255); // G
+                    pixels[i + 2] = (byte)(pixels[i + 2] * tint.R / 255); // R
+                }
+
+                System.Runtime.InteropServices.Marshal.Copy(pixels, 0, data.Scan0, bytes);
+            } finally {
+                bmp.UnlockBits(data);
             }
         }
 
