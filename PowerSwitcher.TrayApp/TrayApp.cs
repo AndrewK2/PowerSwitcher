@@ -3,6 +3,7 @@ using PowerSwitcher.TrayApp.Configuration;
 using PowerSwitcher.TrayApp.Resources;
 using PowerSwitcher.TrayApp.Services;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
@@ -21,9 +22,12 @@ namespace PowerSwitcher.TrayApp
         public event Action ShowFlyout;
         IPowerManager pwrManager;
         ConfigurationInstance<PowerSwitcherSettings> configuration;
-        InactivityWatcherService inactivityWatcher;
-        System.Drawing.Icon defaultIcon;
-        System.Drawing.Icon inactiveIcon;
+        
+        private readonly InactivityWatcherService inactivityWatcher;
+        private readonly System.Drawing.Icon defaultIcon;
+        private readonly System.Drawing.Icon inactiveIcon;
+        private bool isInactive;
+        private readonly Dictionary<TrayIconColorTint, System.Drawing.Icon> schemaTintIconCache = [];
 
         #endregion
         
@@ -43,16 +47,19 @@ namespace PowerSwitcher.TrayApp
 
             defaultIcon = new System.Drawing.Icon(Application.GetResourceStream(new Uri("pack://application:,,,/PowerSwitcher.TrayApp;component/Tray.ico")).Stream, WF.SystemInformation.SmallIconSize);
             inactiveIcon = CreateInactivityIcon(defaultIcon, configuration.Data.InactivityIconColorTint);
-            _trayIcon.Icon = defaultIcon;
             _trayIcon.Text = string.Concat(AppStrings.AppName);
             _trayIcon.Visible = true;
 
-            inactivityWatcher.InactivityStateChanged += isInactive => _trayIcon.Icon = isInactive ? inactiveIcon : defaultIcon;
+            inactivityWatcher.InactivityStateChanged += isInactive => {
+                this.isInactive = isInactive;
+                UpdateTrayIcon();
+            };
 
             this.ShowFlyout += (((App)Application.Current).MainWindow as MainWindow).ToggleWindowVisibility;
 
             //Run automatic on-off-AC change at boot
             powerStatusChanged();
+            UpdateTrayIcon();
         }
 
         public void CreateAltMenu()
@@ -107,11 +114,14 @@ namespace PowerSwitcher.TrayApp
                 var intervalItem = new WF.MenuItem(label);
                 intervalItem.Name = $"inactivityAfter{seconds}";
                 var capturedSeconds = seconds;
-                intervalItem.Click += (s, ea) => setInactivityTimeout(capturedSeconds);
+                intervalItem.Click += (s, ea) => SetInactivityTimeout(capturedSeconds);
                 settingsInactivityIntervalItem.MenuItems.Add(intervalItem);
             }
 
             #endregion
+            
+            var settingsSchemaColorItem = contextMenuSettings.MenuItems.Add("Change tray icon color for schema");
+            settingsSchemaColorItem.Name = "settingsSchemaColor";
 
             var automaticHideItem = contextMenuSettings.MenuItems.Add(AppStrings.HideFlyoutAfterSchemaChangeSwitch);
             automaticHideItem.Checked = configuration.Data.AutomaticFlyoutHideAfterClick;
@@ -197,6 +207,7 @@ namespace PowerSwitcher.TrayApp
         private void PwrManager_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(IPowerManager.CurrentPowerStatus)) { powerStatusChanged(); }
+            if (e.PropertyName == nameof(IPowerManager.CurrentSchema)) { UpdateTrayIcon(); }
         }
 
         private void powerStatusChanged()
@@ -291,6 +302,7 @@ namespace PowerSwitcher.TrayApp
             _trayIcon.ContextMenu.MenuItems["settings"].MenuItems["settingsOnAC"].MenuItems.Add(0, newItemSettingsOnAC);
 
             updateInactivityMenuWithPowerSchema(powerSchema);
+            updateSchemaColorMenuWithPowerSchema(powerSchema);
         }
 
         private void updateInactivityMenuWithPowerSchema(IPowerSchema powerSchema)
@@ -301,6 +313,32 @@ namespace PowerSwitcher.TrayApp
             schemaItem.Click += (s, ea) => setInactivityPlan(powerSchema);
 
             _trayIcon.ContextMenu.MenuItems["settings"].MenuItems["settingsInactivity"].MenuItems.Add(schemaItem);
+        }
+
+        private void updateSchemaColorMenuWithPowerSchema(IPowerSchema schema)
+        {
+            var schemaParent = new WF.MenuItem(schema.Name);
+            schemaParent.Name = $"schemaColorParent{schema.Guid}";
+
+            var currentTint = configuration.Data.GetSchemaTint(schema.Guid);
+            var tintOptions = new[] {
+                TrayIconColorTint.None,
+                TrayIconColorTint.Green,
+                TrayIconColorTint.Yellow,
+                TrayIconColorTint.Red,
+                TrayIconColorTint.Orange,
+                TrayIconColorTint.Blue,
+            };
+            foreach (var tint in tintOptions)
+            {
+                var tintItem = new WF.MenuItem(tint.ToString());
+                tintItem.Checked = currentTint == tint;
+                var capturedTint = tint;
+                tintItem.Click += (s, ea) => SetSchemaColorTint(schema, capturedTint);
+                schemaParent.MenuItems.Add(tintItem);
+            }
+
+            _trayIcon.ContextMenu.MenuItems["settings"].MenuItems["settingsSchemaColor"].MenuItems.Add(schemaParent);
         }
 
         private void clearPowerSchemasInTray()
@@ -317,6 +355,7 @@ namespace PowerSwitcher.TrayApp
             _trayIcon.ContextMenu.MenuItems["settings"].MenuItems["settingsOffAC"].MenuItems.Clear();
             _trayIcon.ContextMenu.MenuItems["settings"].MenuItems["settingsOnAC"].MenuItems.Clear();
             _trayIcon.ContextMenu.MenuItems["settings"].MenuItems["settingsInactivity"].MenuItems.Clear();
+            _trayIcon.ContextMenu.MenuItems["settings"].MenuItems["settingsSchemaColor"].MenuItems.Clear();
         }
 
         private WF.MenuItem getNewPowerSchemaItem(IPowerSchema powerSchema, EventHandler clickedHandler, bool isChecked)
@@ -364,16 +403,41 @@ namespace PowerSwitcher.TrayApp
             inactivityWatcher.Configure(false, configuration.Data.InactivityPlanGuid, TimeSpan.Zero);
         }
 
-        private void setInactivityTimeout(int seconds)
+        private void SetInactivityTimeout(int seconds)
         {
             configuration.Data.InactivityTimeoutSeconds = seconds;
             configuration.Data.InactivitySwitchEnabled = configuration.Data.InactivityPlanGuid != Guid.Empty;
             configuration.Save();
             inactivityWatcher.Configure(configuration.Data.InactivitySwitchEnabled, configuration.Data.InactivityPlanGuid, TimeSpan.FromSeconds(seconds));
         }
+
+        private void SetSchemaColorTint(IPowerSchema schema, TrayIconColorTint tint) {
+            configuration.Data.SetSchemaTint(schema.Guid, tint);
+            configuration.Save();
+            UpdateTrayIcon();
+        }
         #endregion
 
         #region IconHelpers
+
+        private void UpdateTrayIcon() {
+            _trayIcon.Icon = isInactive ? inactiveIcon : GetSchemaIcon(pwrManager.CurrentSchema?.Guid);
+        }
+
+        private System.Drawing.Icon GetSchemaIcon(Guid? guid) {
+            if(guid == null) return defaultIcon;
+            var tint = configuration.Data.GetSchemaTint(guid.Value);
+            if(tint == TrayIconColorTint.None) return defaultIcon;
+
+            if(schemaTintIconCache.TryGetValue(tint, out var icon)) {
+                return icon;
+            }
+
+            icon = CreateInactivityIcon(defaultIcon, tint);
+            schemaTintIconCache[tint] = icon;
+
+            return icon;
+        }
 
         private static System.Drawing.Icon CreateInactivityIcon(System.Drawing.Icon original, TrayIconColorTint colorTint) {
             using var bmp = new System.Drawing.Bitmap(original.Width, original.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
@@ -392,7 +456,10 @@ namespace PowerSwitcher.TrayApp
         private static void TintBitmap(System.Drawing.Bitmap bmp, TrayIconColorTint colorTint) {
             var tint = colorTint switch {
                 TrayIconColorTint.Yellow => System.Drawing.Color.FromArgb(255, 255, 102),
-                TrayIconColorTint.Red => System.Drawing.Color.FromArgb(255, 102, 102),
+                TrayIconColorTint.Orange => System.Drawing.Color.FromArgb(255, 178, 102),
+                TrayIconColorTint.Red    => System.Drawing.Color.FromArgb(255, 102, 102),
+                TrayIconColorTint.Blue   => System.Drawing.Color.FromArgb(102, 178, 255),
+                TrayIconColorTint.Violet => System.Drawing.Color.FromArgb(178, 102, 255),
                 _ => System.Drawing.Color.FromArgb(144, 238, 144) // Green
             };
 

@@ -1,11 +1,20 @@
 ﻿using Petrroll.Helpers;
 using PowerSwitcher.TrayApp.Services;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Windows.Input;
 
 namespace PowerSwitcher.TrayApp.Configuration
 {
-    public enum TrayIconColorTint { Green, Yellow, Red }
+    public enum TrayIconColorTint { None, Green, Yellow, Orange, Red, Blue, Violet }
+
+    [Serializable]
+    public class SchemaColorEntry
+    {
+        public Guid SchemaGuid { get; set; }
+        public TrayIconColorTint ColorTint { get; set; }
+    }
 
     [Serializable]
     public class PowerSwitcherSettings : ObservableObject
@@ -32,5 +41,18 @@ namespace PowerSwitcher.TrayApp.Configuration
         public int InactivityTimeoutSeconds { get; set; } = TrayApp.InactivityTimeout180;
         public TrayIconColorTint InactivityIconColorTint { get; set; } = TrayIconColorTint.Green;
 
+        public List<SchemaColorEntry> SchemaIconTints { get; set; } = [];
+
+        public TrayIconColorTint GetSchemaTint(Guid guid) => SchemaIconTints.FirstOrDefault(e => e.SchemaGuid == guid)?.ColorTint ?? TrayIconColorTint.None;
+
+        public void SetSchemaTint(Guid guid, TrayIconColorTint tint) {
+            var entry = SchemaIconTints.FirstOrDefault(e => e.SchemaGuid == guid);
+            if(entry == null) {
+                entry = new SchemaColorEntry { SchemaGuid = guid };
+                SchemaIconTints.Add(entry);
+            }
+
+            entry.ColorTint = tint;
+        }
     }
 }
